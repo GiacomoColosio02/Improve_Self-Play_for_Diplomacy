@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
+
 class DilpILKNet:
     def __init__(self):
         self.encoder = DilpILKEncoder()
@@ -13,6 +14,7 @@ class DilpILKNet:
         value, weights = self.value_head(embeddings)
         return policy, value, weights
 
+
 class DilpILKEncoder(tf.keras.layers.Layer):
     def __init__(self, embed_dim=224, num_heads=8, ff_dim=224, num_layers=10, num_positions=512, dropout=0.0):
         super().__init__()
@@ -20,13 +22,18 @@ class DilpILKEncoder(tf.keras.layers.Layer):
         self.location_state_layer = tf.keras.layers.Dense(embed_dim, use_bias=True, activation=None)
         self.global_state_layer = tf.keras.layers.Dense(embed_dim, use_bias=True, activation=None)
 
+        key_dim = embed_dim // num_heads
         self.attn_layers = [
-            tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+            tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)
             for _ in range(num_layers)
         ]
         self.proj_layer = tf.keras.layers.Dense(embed_dim)
         self.positional_bias = self.add_weight(
-           "positional_bias", shape=[num_positions, embed_dim], initializer="zeros", trainable=True
+            shape=(num_positions, embed_dim),
+            name="positional_bias",
+            initializer="zeros",
+            trainable=True,
+            dtype=tf.float32
         )
 
         self.attn_norm_layers = [tf.keras.layers.LayerNormalization() for _ in range(num_layers)]
@@ -42,7 +49,7 @@ class DilpILKEncoder(tf.keras.layers.Layer):
         player_state = self.player_state_layer(board_state["player"])
         location_state = self.location_state_layer(board_state["location"])
         global_state = self.global_state_layer(board_state["global"])
-        
+
         x = tf.concat([location_state, player_state, global_state], axis=1)
         x = self.proj_layer(x)
 
@@ -83,26 +90,48 @@ class DilpILKPolicyHead(tf.keras.layers.Layer):
         seq_out1, h1, c1 = self.lstm1(embeddings, training=training)
         seq_out2, h2, c2 = self.lstm2(seq_out1, training=training)
         logits = self.output_layer(seq_out2)
-        policy_probs = tf.nn.softmax(logits, axis=-1)
-        return policy_probs
+        return logits
+
+        # policy_probs = tf.nn.softmax(logits, axis=-1)
+        # return policy_probs
+
 
 class DilpILKValueHead(tf.keras.layers.Layer):
-    def __init__(self):
+    def __init__(self, embed_dim=224, num_players=7):
         super().__init__()
-        self.score_layer = tf.keras.layers.Dense(1)
+        # score_layer: maps each position embedding -> scalar logit
+        self.score_layer = tf.keras.layers.Dense(1, name="value_pos_score")
+        # MLP after pooling: 224 -> 224 -> num_players
+        self.fc1 = tf.keras.layers.Dense(embed_dim, name="value_fc1")
+        self.act = tf.keras.layers.Activation('gelu')  # paper uses GeLU
+        self.fc2 = tf.keras.layers.Dense(num_players, name="value_fc2")
 
     def call(self, embeddings):
         """
-        embeddings: [batch, num_entities, embed_dim]
+        embeddings: [batch, seq_len, embed_dim]
         Returns:
-            pooled_value: [batch, embed_dim]
-            weights: [batch, num_entities]
+            player_logits: [batch, num_players]
+            weights: [batch, seq_len]  (positional attention weights)
         """
-        logits = self.score_layer(embeddings)
-        weights = tf.nn.softmax(logits, axis=1)
-        pooled = tf.reduce_sum(weights * embeddings, axis=1)
-        return pooled, tf.squeeze(weights, axis=-1)
-    
+        # per-pos logits
+        pos_logits = self.score_layer(embeddings)
+        pos_logits = tf.squeeze(pos_logits, axis=-1)
+
+        # softmax over positions to get weights
+        weights = tf.nn.softmax(pos_logits, axis=1)
+
+        # weighted sum to get pooled embedding
+        weights_exp = tf.expand_dims(weights, axis=-1)
+        pooled = tf.reduce_sum(weights_exp * embeddings, axis=1)
+
+        # MLP -> per-player logits
+        x = self.fc1(pooled)
+        x = self.act(x)
+        player_logits = self.fc2(x)
+
+        return player_logits, weights
+
+
 class BoardStateEncoder:
     def _encode_location_state(game):
         map_ = game.map
@@ -187,10 +216,10 @@ class BoardStateEncoder:
 
     def _encode_global_state(game):
         phase_parts = game.phase.split()
-        season_map = {"SPRING": [1,0,0], "FALL":[0,1,0], "WINTER":[0,0,1]}
+        season_map = {"SPRING": [1, 0, 0], "FALL": [0, 1, 0], "WINTER": [0, 0, 1]}
         season = phase_parts[0].upper() if len(phase_parts) > 0 else "SPRING"
-        season_onehot = season_map.get(season, [0,0,0])
-        year = (int(phase_parts[1])-1901)/10.0 if len(phase_parts)>1 else 0.0
+        season_onehot = season_map.get(season, [0, 0, 0])
+        year = (int(phase_parts[1]) - 1901) / 10.0 if len(phase_parts) > 1 else 0.0
         global_features = np.array([[season_onehot + [year, 1.0, 1.0, 0.0]]], dtype=np.float32)
         return tf.convert_to_tensor(global_features)
 
