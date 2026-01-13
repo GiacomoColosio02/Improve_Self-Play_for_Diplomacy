@@ -31,7 +31,7 @@
 | **Jakub Seliga** | Behavioral Cloning, Evaluation | jakub.seliga@estudiantat.upc.edu |
 | **Luka Ivcevic** | Population-Based Training | luka.ivcevic@estudiantat.upc.edu |
 
-**Supervisor:** Prof. [Supervisor Name], Department of Computer Science, UPC Barcelona
+**Supervisor:** Prof. Ulises Cortes, Department of Computer Science, UPC Barcelona
 
 ---
 
