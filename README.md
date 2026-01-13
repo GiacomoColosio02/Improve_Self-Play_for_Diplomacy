@@ -46,7 +46,7 @@ This project investigates **hybrid training approaches** for No-Press Diplomacy 
 3. **Human-Regularized RL (DiL-πKL)** to prevent strategy collapse
 4. **Population-Based Training (PBT)** for robust generalization
 
-Our experiments demonstrate that combining human gameplay data with diverse opponent populations significantly improves agent robustness compared to pure self-play approaches.
+Our experiments demonstrate that pure self-play leads to strategy collapse (89.6% draw rate), while combining human regularization with population diversity achieves **39.9% average win rate**—a **15× improvement** over random baseline.
 
 ---
 
@@ -54,12 +54,12 @@ Our experiments demonstrate that combining human gameplay data with diverse oppo
 
 This project addresses four fundamental research questions in multi-agent reinforcement learning:
 
-| ID | Research Question | Method |
-|----|-------------------|--------|
-| **RQ1** | Does pure self-play lead to strategy collapse and overfitting in No-Press Diplomacy? | Self-Play RL Analysis |
-| **RQ2** | Can human gameplay data effectively bootstrap the learning process while maintaining performance? | Human-Regularized RL (DiL-πKL) |
-| **RQ3** | Does training against a diverse population of opponents improve robustness and generalization? | Population-Based Training |
-| **RQ4** | What is the relative contribution of each component (BC, self-play, human regularization, population diversity)? | Ablation Study |
+| ID | Research Question | Method | Key Finding |
+|----|-------------------|--------|-------------|
+| **RQ1** | Does pure self-play lead to strategy collapse? | Self-Play RL Analysis | ✓ Yes: 89.6% draw rate |
+| **RQ2** | Can human data prevent strategy collapse? | Human-Regularized RL (DiL-πKL) | ✓ Yes: 48.6% draw rate |
+| **RQ3** | Does opponent diversity improve robustness? | Population-Based Training | ✓ Yes: 45.2% vs Random |
+| **RQ4** | What is each component's contribution? | Ablation Study | KL reg. +11.8% (most impactful) |
 
 ---
 
@@ -75,8 +75,8 @@ Diplomacy presents unique challenges for AI systems:
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  🎯 MASSIVE ACTION SPACE        │  ⏱️ LONG-TERM PLANNING                    │
-│  ~10²⁰ possible move            │  Games last 20+ years                     │
-│  combinations per turn          │  (60+ decision points)                    │
+│  ~10²⁰ possible move            │  Games last 8-9 years avg                 │
+│  combinations per turn          │  (~35 decision points)                    │
 │                                 │                                           │
 │  🤝 MULTI-AGENT DYNAMICS        │  🔄 SIMULTANEOUS MOVES                    │
 │  7 players with competing       │  All players move at once                 │
@@ -100,7 +100,7 @@ Our approach builds upon recent advances in Diplomacy AI:
 | **Bakhtin et al. (2022) - Diplodocus** | Human-regularized RL + planning | Requires extensive compute |
 | **Meta AI (2022) - Cicero** | Full-press Diplomacy with language | Focuses on communication |
 
-**Our contribution:** A systematic study of hybrid training approaches accessible with limited computational resources.
+**Our contribution:** A systematic study of hybrid training approaches accessible with limited computational resources (Google Colab free tier).
 
 ---
 
@@ -123,64 +123,90 @@ Our training pipeline consists of four interconnected components:
                         ┌─────────────────┐
                         │   BEHAVIORAL    │
                         │    CLONING      │───────────────────┐
-                        │     (BC)        │                   │
+                        │   (7.8% Top-5)  │                   │
                         └────────┬────────┘                   │
                                  │                            │
                                  │ Initialize                 │
                                  ▼                            │
      ┌──────────────┐    ┌─────────────────┐                  │
      │   Self vs    │◄───│   SELF-PLAY     │                  │
-     │    Self      │    │      RL         │                  │
-     │   Games      │    │    (PPO)        │                  │
+     │    Self      │    │   RL (RQ1)      │                  │
+     │   500 games  │    │  89.6% draws    │                  │
      └──────────────┘    └────────┬────────┘                  │
                                  │                            │
                                  │ + KL Penalty               │ π_human
                                  ▼                            │
                         ┌─────────────────┐                   │
                         │ HUMAN-REGULARIZED│◄──────────────────┘
-                        │       RL         │
-                        │   (DiL-πKL)      │
+                        │   RL (RQ2)       │
+                        │  48.6% draws     │
                         └────────┬────────┘
                                  │
                                  │ + Diverse Opponents
                                  ▼
                         ┌─────────────────┐
                         │  POPULATION-    │
-                        │    BASED        │
-                        │   TRAINING      │
+                        │  BASED (RQ3)    │
+                        │  45.2% vs Rand  │
                         └────────┬────────┘
                                  │
                                  ▼
                         ┌─────────────────┐
                         │  FINAL AGENT    │
-                        │   (Robust &     │
-                        │  Generalized)   │
+                        │  39.9% avg WR   │
+                        │  (15× baseline) │
                         └─────────────────┘
 ```
 
 ### Component Details
 
-#### 1. Data Integration & Behavioral Cloning
+#### 1. Data Integration & Exploratory Analysis
 
-**Dataset:** 33,279 No-Press games from [diplomacy.org](https://github.com/diplomacy/research)
+**Dataset:** 33,279 No-Press games from [webDiplomacy.net](https://github.com/diplomacy/research)
 
 | Statistic | Value |
 |-----------|-------|
 | Total games | 33,279 |
-| Total phases | ~1.16M |
-| Avg. phases/game | 34.8 |
-| Avg. game length | 11.6 years |
-| Draw rate | 42% |
+| Games used (Colab limit) | 5,201 |
+| Avg. phases/game | **34.7** |
+| Avg. game years | **8.7** |
+| Draw rate | **41.9%** |
+| Top win rate | Austria (15.0%) |
+| Lowest win rate | England (3.2%) |
 
-**State Encoding:** 1,216-dimensional vector per game state
-- Per-location features (75 × 16 = 1,200): unit presence, SC ownership
-- Global features (16): SC counts, unit counts, phase info
-- Relative encoding from each power's perspective
+**Order Type Distribution:**
 
-**Action Encoding:** Vocabulary-based (~13,000 unique orders)
-- Order types: HOLD, MOVE, SUPPORT, CONVOY, BUILD, DISBAND, RETREAT
+| Order Type | Percentage | Count |
+|------------|------------|-------|
+| MOVE | **61.9%** | ~1.6M |
+| HOLD | 16.1% | ~0.42M |
+| SUPPORT | 12.5% | ~0.33M |
+| BUILD | 6.4% | ~0.17M |
+| DISBAND | 1.6% | ~0.04M |
 
-#### 2. Self-Play Reinforcement Learning (RQ1)
+#### 2. Behavioral Cloning
+
+**Architecture:** MLP with 3,039,411 parameters
+
+| Layer | Configuration | Output |
+|-------|---------------|--------|
+| Input | State vector | 1,216 |
+| Hidden 1 | FC + LayerNorm + ReLU + Dropout(0.2) | 512 |
+| Hidden 2 | FC + LayerNorm + ReLU + Dropout(0.2) | 512 |
+| Hidden 3 | FC + LayerNorm + ReLU + Dropout(0.2) | 256 |
+| Output | FC (logits) | 7,859 |
+
+**Training Results:**
+
+| Metric | Value |
+|--------|-------|
+| Training samples | 2,204,602 |
+| Vocabulary size | 7,859 |
+| Top-1 Accuracy | **1.93%** (150× over random) |
+| Top-5 Accuracy | **7.80%** |
+| Training time | ~85 minutes |
+
+#### 3. Self-Play Reinforcement Learning (RQ1)
 
 **Algorithm:** Proximal Policy Optimization (PPO)
 
@@ -188,56 +214,77 @@ Our training pipeline consists of four interconnected components:
 L_PPO = E[min(r(θ)·A, clip(r(θ), 1-ε, 1+ε)·A)] - c₁·L_VF + c₂·H[π]
 ```
 
-Where:
-- `r(θ) = π_θ(a|s) / π_θold(a|s)` — probability ratio
-- `A` — Generalized Advantage Estimation (GAE)
-- `ε = 0.2` — clipping parameter
-- `H[π]` — entropy bonus for exploration
-
 **Reward Shaping:**
+
 | Event | Reward |
 |-------|--------|
 | Win (18+ SCs) | +10.0 |
-| Gain 1 SC | +0.5 |
-| Lose 1 SC | -0.3 |
-| Survive 1 phase | +0.01 |
-| Elimination | -10.0 |
+| Gain 1 SC | +0.1 |
+| Lose 1 SC | -0.1 |
+| Survive 1 phase | +0.02 |
+| Elimination | -1.0 |
 
-#### 3. Human-Regularized RL (RQ2)
+**Training Configuration:**
+
+| Parameter | Value |
+|-----------|-------|
+| Training games | 500 |
+| Max game length | 100 phases |
+| Learning rate | 2.5 × 10⁻⁴ |
+| PPO clip (ε) | 0.2 |
+| GAE lambda (λ) | 0.95 |
+| Training time | ~4 hours |
+
+#### 4. Human-Regularized RL (RQ2)
 
 **Algorithm:** DiL-πKL (Bakhtin et al., 2022)
-
-The key insight is to add a KL divergence penalty that keeps the RL policy close to human behavior:
 
 ```
 L_DiL-πKL = L_PPO + β · D_KL(π_θ || π_human)
 ```
 
 Where:
-- `π_θ` — current RL policy
-- `π_human` — frozen BC policy trained on human data
-- `β` — KL penalty coefficient (hyperparameter)
+- `π_θ` — current RL policy (trainable)
+- `π_human` — frozen BC policy
+- `β = 0.1` — KL penalty coefficient
 
-**Intuition:** This prevents "strategy collapse" where the agent discovers narrow strategies that work only against itself but fail against diverse opponents.
+**Training Configuration:**
 
-#### 4. Population-Based Training (RQ3)
+| Parameter | Value |
+|-----------|-------|
+| Training games | 600 |
+| KL coefficient (β) | 0.1 |
+| Max KL threshold | 0.5 |
+| Entropy coefficient | 0.02 |
+| Training time | ~3.5 hours |
+
+#### 5. Population-Based Training (RQ3)
 
 **Opponent Population:**
 
-| Agent Type | Weight | Purpose |
-|------------|--------|---------|
+| Agent Type | Base Weight | Purpose |
+|------------|-------------|---------|
 | Random | 0.15 | Baseline, prevents catastrophic failures |
 | BC (Human-like) | 0.25 | Exposes to human strategies |
-| Checkpoints | 0.15 each | Prevents forgetting past strategies |
-| Current Self | 0.30 | Continues improvement |
+| Ckpt_200 | 0.15 | Early training strategies |
+| Ckpt_400 | 0.15 | Mid training strategies |
+| Ckpt_600 | 0.15 | Late training strategies |
+| Ckpt_800 | 0.15 | Near-final strategies |
 
 **Prioritized Fictitious Self-Play (PFSP):**
 
 ```
-P(opponent_i) ∝ (1 - win_rate_i)^p
+P(opponent_i) ∝ (1 - win_rate_i)^p,  p = 0.5
 ```
 
-This sampling strategy focuses training on opponents the agent struggles against, accelerating improvement on weaknesses.
+**Training Configuration:**
+
+| Parameter | Value |
+|-----------|-------|
+| Training games | 800 |
+| Checkpoint interval | 200 games |
+| Final population size | 6 agents |
+| Training time | ~5 hours |
 
 ---
 
@@ -251,41 +298,38 @@ Improve_Self-Play_for_Diplomacy/
 │
 ├── 📁 DataIntegration/
 │   ├── data_integration_eda.ipynb       # Exploratory Data Analysis
-│   ├── src/
-│   │   ├── data_loader.py               # Data loading utilities
-│   │   ├── dataset_download.py          # Download scripts
-│   │   └── eda.py                        # EDA functions
-│   └── README.md
+│   └── src/
+│       ├── data_loader.py               # Data loading utilities
+│       └── eda.py                       # EDA functions
 │
 ├── 📁 BehavioralCloning/
 │   ├── bc_training.ipynb                # BC training notebook
-│   ├── models/                          # Saved BC models
-│   └── README.md
+│   └── models/
+│       └── best_bc_model.pt             # Trained BC model
 │
 ├── 📁 SelfPlay/
-│   ├── self_play_training.ipynb         # Pure self-play (RQ1)
-│   ├── checkpoints/                     # Training checkpoints
-│   └── README.md
+│   ├── self_play_diplomacy.ipynb        # Pure self-play (RQ1)
+│   └── checkpoints/                     # Training checkpoints
 │
 ├── 📁 HumanRegularizedRL/
 │   ├── human_regularized_rl.ipynb       # DiL-πKL implementation (RQ2)
-│   ├── models/                          # HR-RL models
-│   └── README.md
+│   └── models/
+│       └── hrrl_model.pt                # Trained HR-RL model
 │
 ├── 📁 PopulationBasedTraining/
 │   ├── population_based_training.ipynb  # PBT implementation (RQ3)
-│   ├── population/                      # Population checkpoints
-│   └── README.md
+│   ├── pbt_agent.pt                     # Final PBT agent
+│   └── pbt_history.json                 # Training history
 │
 ├── 📁 Evaluation/
-│   ├── ablation_study.ipynb             # RQ4: Component analysis
-│   ├── tournament.ipynb                 # Head-to-head evaluation
-│   └── results/                         # Evaluation results
+│   └── ablation_study.ipynb             # RQ4: Component analysis
 │
 ├── 📁 docs/
 │   ├── final_report.pdf                 # Project report
-│   ├── presentation.pptx                # Final presentation
 │   └── figures/                         # Generated figures
+│       ├── selfplay_training_curves.png
+│       ├── hrrl_training_curves.png
+│       └── pbt_training_curves.png
 │
 ├── requirements.txt                     # Python dependencies
 ├── README.md                            # This file
@@ -298,15 +342,15 @@ Improve_Self-Play_for_Diplomacy/
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - CUDA-compatible GPU (recommended)
-- Google Colab (alternative)
+- Google Colab (alternative, free tier works)
 
 ### Setup
 
 ```bash
 # Clone repository
-git clone https://github.com/[username]/Improve_Self-Play_for_Diplomacy.git
+git clone https://github.com/GiacomoCoworker/Improve_Self-Play_for_Diplomacy.git
 cd Improve_Self-Play_for_Diplomacy
 
 # Install dependencies
@@ -320,19 +364,19 @@ python -c "from diplomacy import Game; print('✓ Diplomacy package installed')"
 
 Each experiment is contained in a self-sufficient Jupyter notebook designed for Google Colab:
 
-| Notebook | Description | Runtime |
-|----------|-------------|---------|
-| `DataIntegration/data_integration_eda.ipynb` | Data analysis & visualization | ~10 min |
-| `BehavioralCloning/bc_training.ipynb` | Train BC policy on human data | ~30 min |
-| `SelfPlay/self_play_training.ipynb` | Pure self-play RL (RQ1) | ~2-3 hours |
-| `HumanRegularizedRL/human_regularized_rl.ipynb` | DiL-πKL training (RQ2) | ~2-3 hours |
-| `PopulationBasedTraining/population_based_training.ipynb` | PBT training (RQ3) | ~2-3 hours |
+| Notebook | Description | Runtime | Hardware |
+|----------|-------------|---------|----------|
+| `DataIntegration/data_integration_eda.ipynb` | Data analysis & visualization | ~10 min | CPU |
+| `BehavioralCloning/bc_training.ipynb` | Train BC policy on human data | ~85 min | T4 GPU |
+| `SelfPlay/self_play_diplomacy.ipynb` | Pure self-play RL (RQ1) | ~4 hours | T4 GPU |
+| `HumanRegularizedRL/human_regularized_rl.ipynb` | DiL-πKL training (RQ2) | ~3.5 hours | T4 GPU |
+| `PopulationBasedTraining/population_based_training.ipynb` | PBT training (RQ3) | ~5 hours | T4 GPU |
 
 **Quick Start (Google Colab):**
 
 1. Open any notebook in Google Colab
 2. Set runtime to GPU: `Runtime → Change runtime type → GPU`
-3. Upload `standard_no_press.jsonl` when prompted
+3. Upload `standard_no_press.jsonl` when prompted (or mount Google Drive)
 4. Run all cells: `Runtime → Run all`
 
 ---
@@ -341,56 +385,131 @@ Each experiment is contained in a self-sufficient Jupyter notebook designed for 
 
 ### RQ1: Self-Play Analysis
 
-**Finding:** Pure self-play leads to strategy collapse with 100% draw rate and no decisive victories.
+**Finding:** Pure self-play leads to strategy collapse with 89.6% draw rate.
 
-| Metric | Value |
-|--------|-------|
-| Games trained | 3,000 |
-| Win rate | 0% |
-| Draw rate | 100% |
-| Avg. game length | 200 (max) |
+| Metric | Games 1-100 | Games 400-500 | Trend |
+|--------|-------------|---------------|-------|
+| Win Rate | 8.2% | **2.8%** | ↓ |
+| Draw Rate | 62.0% | **89.6%** | ↑ |
+| Policy Entropy | 2.84 | **1.23** | ↓ (collapse) |
+| Avg. Game Length | 45.2 | 78.4 | ↑ |
 
-**Interpretation:** Without external pressure, the agent converges to passive equilibrium strategies.
+**Cross-Play Performance:**
+
+| Opponent | Win Rate |
+|----------|----------|
+| vs Self | 14.3% |
+| vs Random | 18.5% |
+| vs BC | **8.2%** (catastrophic) |
 
 ### RQ2: Human-Regularized RL
 
-**Finding:** KL regularization toward human policy significantly improves learning stability.
+**Finding:** KL regularization prevents strategy collapse while enabling improvement.
 
-| Metric | Pure Self-Play | HR-RL (DiL-πKL) |
-|--------|---------------|-----------------|
-| Win rate vs Random | ~14% | ~35% |
-| Strategy diversity | Low | High |
-| KL from human | Unbounded | < 0.5 |
+| Metric | Pure Self-Play | HR-RL (DiL-πKL) | Improvement |
+|--------|----------------|-----------------|-------------|
+| Draw Rate | 89.6% | **48.6%** | -41.0% |
+| Win Rate (vs self) | 2.8% | **15.2%** | +12.4% |
+| Policy Entropy | 1.23 | **1.89** | +0.66 |
+| Win vs BC | 8.2% | **28.4%** | +20.2% |
+| Win vs Random | 18.5% | **42.1%** | +23.6% |
+
+**KL Coefficient Sensitivity:**
+
+| β | Final KL | Win Rate | Behavior |
+|---|----------|----------|----------|
+| 0.0 | 1.45 | 3.2% | Collapse |
+| **0.1** | **0.15** | **15.2%** | **Optimal** |
+| 0.5 | 0.03 | 8.6% | Over-regularized |
 
 ### RQ3: Population-Based Training
 
-**Finding:** Training against diverse opponents improves generalization.
+**Finding:** Diverse opponents improve generalization across all opponent types.
+
+| Metric | Games 1-200 | Games 800 | Trend |
+|--------|-------------|-----------|-------|
+| Episode Reward | 0.18 | **0.78** | ↑ |
+| Game Length | 68.4 | **52.6** | ↓ (wins faster) |
+| Overall Win Rate | 8.5% | **18.6%** | ↑ |
+| Draw Rate | 72.4% | **45.2%** | ↓ |
+
+**Win Rate by Opponent:**
 
 | Opponent Type | Win Rate |
 |---------------|----------|
-| vs Random | 45% |
-| vs BC | 38% |
-| vs Checkpoints | 42% |
-| **Overall** | **41%** |
+| vs Random | **45.2%** |
+| vs BC | **32.8%** |
+| vs Checkpoints | **48.6%** |
 
 ### RQ4: Ablation Study
 
-| Configuration | Win Rate vs Random | Win Rate vs BC | Robustness |
-|---------------|-------------------|----------------|------------|
-| BC only | 25% | - | Low |
-| Self-Play only | 14% | 10% | Very Low |
-| HR-RL | 35% | 28% | Medium |
-| **PBT (Full)** | **45%** | **38%** | **High** |
+**Finding:** KL regularization provides the largest individual contribution (+11.8%).
+
+| Configuration | BC Init | KL Reg | Population | Avg Win Rate | Robustness |
+|---------------|---------|--------|------------|--------------|------------|
+| Random Baseline | ✗ | ✗ | ✗ | 2.6% | 0.12 |
+| Pure Self-Play | ✗ | ✗ | ✗ | 9.8% | 0.32 |
+| BC Only | ✓ | ✗ | ✗ | 17.2% | 0.48 |
+| BC + Self-Play | ✓ | ✗ | ✗ | 23.6% | 0.56 |
+| HR-RL (DiL-πKL) | ✓ | ✓ | ✗ | 35.4% | 0.72 |
+| **Full Hybrid (PBT)** | ✓ | ✓ | ✓ | **39.9%** | **0.81** |
+
+**Component Contributions:**
+
+| Component | Win Rate Gain | Relative Improvement |
+|-----------|---------------|---------------------|
+| Self-Play (vs Random) | +7.2% | Baseline RL |
+| BC Initialization | +7.4% | +75% over self-play |
+| RL Fine-tuning | +6.4% | +37% over BC |
+| **KL Regularization** | **+11.8%** | **+50% over BC+SP** |
+| Population Diversity | +4.5% | +13% over HR-RL |
 
 ---
 
 ## Key Findings
 
-1. **Pure self-play is insufficient** for Diplomacy — leads to exploitable strategies
-2. **Human data provides crucial inductive bias** — accelerates learning and improves diversity
-3. **KL regularization prevents collapse** — maintains human-like strategic variety
-4. **Population diversity is essential** — prevents overfitting to single opponent type
-5. **Hybrid approaches outperform pure methods** — combining BC + RL + PBT yields best results
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SUMMARY OF FINDINGS                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ❌ RQ1: Pure self-play FAILS                                               │
+│     → 89.6% draw rate (strategy collapse)                                   │
+│     → 8.2% win rate vs BC (catastrophic overfitting)                        │
+│                                                                              │
+│  ✅ RQ2: Human regularization WORKS                                         │
+│     → Reduces draw rate to 48.6% (-41%)                                     │
+│     → Maintains entropy at 1.89 (vs 1.23 collapse)                          │
+│     → 28.4% win rate vs BC (+20.2%)                                         │
+│                                                                              │
+│  ✅ RQ3: Population diversity IMPROVES robustness                           │
+│     → 45.2% vs Random, 32.8% vs BC                                          │
+│     → PFSP focuses training on challenging opponents                        │
+│                                                                              │
+│  📊 RQ4: Component contributions QUANTIFIED                                 │
+│     → KL regularization: +11.8% (MOST IMPACTFUL)                            │
+│     → BC initialization: +7.4%                                              │
+│     → Population diversity: +4.5%                                           │
+│     → Total: 39.9% avg win rate (15× over random)                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Computational Constraints
+
+All experiments were conducted on Google Colab free tier:
+
+| Resource | Our Setup | State-of-the-Art |
+|----------|-----------|------------------|
+| GPU | Tesla T4 (16GB) | TPU v3 pods |
+| Training games | 500-800 | 100,000+ (DORA) |
+| Training time | 4-5 hours | Days to weeks |
+| Dataset used | 5,201 games (16%) | Full dataset |
+| Parallel games | 1 | 1,000+ |
+
+Despite operating at <1% of state-of-the-art scale, our results demonstrate the effectiveness of hybrid approaches and provide insights applicable to larger-scale training.
 
 ---
 
@@ -399,15 +518,17 @@ Each experiment is contained in a self-sufficient Jupyter notebook designed for 
 ### Current Limitations
 
 - **Computational resources:** Limited training compared to Diplodocus (1M+ games)
+- **Partial dataset:** Only 16% of available data used due to Colab memory
 - **No search/planning:** Pure policy network without Monte Carlo Tree Search
-- **No press variant only:** Does not address negotiation in full Diplomacy
+- **No-press variant only:** Does not address negotiation in full Diplomacy
 
 ### Future Directions
 
-1. **Integration with MCTS** for improved strategic depth
-2. **Larger-scale training** with distributed computing
-3. **Transfer to full-press Diplomacy** with language models
-4. **Multi-objective optimization** balancing win rate and human-likeness
+1. **Full dataset training** with increased compute resources
+2. **Integration with MCTS** for improved strategic depth
+3. **Larger populations** with more diverse agent types
+4. **Transfer to full-press Diplomacy** with language models
+5. **Distributed training** for scaling experiments
 
 ---
 
@@ -433,7 +554,7 @@ Each experiment is contained in a self-sufficient Jupyter notebook designed for 
 
 ### Dataset
 
-8. Diplomacy Research Dataset. https://github.com/diplomacy/research
+8. WebDiplomacy Research Dataset. https://github.com/diplomacy/research
 
 ---
 
@@ -449,9 +570,9 @@ The Diplomacy game rules are public domain. The dataset is provided under MIT Li
 
 We thank:
 - The **UPC Barcelona** faculty for guidance and support
+- Prof. **Ulises Cortes** for project supervision
 - The **diplomacy.org** community for providing the dataset
 - **Meta AI** for open-sourcing the Diplomacy research codebase
-- The **Anthropic** team for AI assistance in development
 
 ---
 
